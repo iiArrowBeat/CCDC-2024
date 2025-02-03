@@ -237,3 +237,115 @@ sudo netstat -anp | grep LISTEN | grep -v 'sshd'
 
 # Find files with recent SUID/SGID permission changes (potential escalation risk)
 sudo find / -perm /6000 -type f -mtime -1 -ls 2>/dev/null
+
+# Find world-writable files
+sudo find / -type f -perm -0002 -ls 2>/dev/null
+
+# Find world-writable directories
+sudo find / -type d -perm -0002 -ls 2>/dev/null
+
+# To remove world-writable permissions (others write access):
+sudo chmod o-w /path/to/file  # For a file
+sudo chmod o-w /path/to/directory  # For a directory
+
+# To change ownership to root:
+sudo chown root:root /path/to/file  # Change ownership of a file
+sudo chown root:root /path/to/directory  # Change ownership of a directory
+
+# To allow only a specific user (exampleuser) to access a file or directory:
+sudo chown exampleuser:exampleuser /path/to/file  # Change ownership to 'exampleuser'
+sudo chown exampleuser:exampleuser /path/to/directory
+
+# =========================
+# 1️⃣ Finding World-Writable Files & Directories
+# =========================
+
+# Find all world-writable files (files that anyone can modify)
+sudo find / -type f -perm -0002 -ls 2>/dev/null
+
+# Find all world-writable directories (directories that anyone can create files in)
+sudo find / -type d -perm -0002 -ls 2>/dev/null
+
+# =========================
+# 2️⃣ Files That Should NEVER Be World-Writable
+# =========================
+
+# System password and group files (user credentials & privileges)
+sudo chmod 644 /etc/passwd
+sudo chmod 640 /etc/group
+sudo chmod 000 /etc/shadow
+sudo chmod 000 /etc/gshadow
+
+# Critical system configuration files (prevent unauthorized modifications)
+sudo chmod 644 /etc/sysctl.conf
+sudo chmod 600 /etc/ssh/sshd_config
+
+# System logs (log tampering prevention)
+sudo chmod 640 /var/log/auth.log
+sudo chmod 640 /var/log/syslog
+sudo chmod 600 /var/log/dmesg
+
+# System executable binaries (prevent privilege escalation attacks)
+sudo chmod 755 /bin/* /usr/bin/* /usr/sbin/*
+
+# =========================
+# 3️⃣ Files That CAN Be World-Writable (But Must Be Monitored)
+# =========================
+
+# Temporary file directories (must have sticky bit to prevent tampering by other users)
+sudo chmod 1777 /tmp /var/tmp
+
+# Print spool directory (CUPS printing service requires write access)
+sudo chmod 1777 /var/spool/cups
+
+# Mail spool directory (needed for receiving mail)
+sudo chmod 1777 /var/mail
+
+# =========================
+# 4️⃣ Files That Should Be World-Writable ONLY IN SPECIFIC CASES
+# =========================
+
+# Web server upload directories (limit to web server user, not everyone)
+sudo chmod 770 /var/www/html/uploads
+
+# Shared directories for specific groups (should not be writable by all users)
+sudo chmod 770 /srv/shared
+
+# =========================
+# 5️⃣ Fixing World-Writable File Permissions
+# =========================
+
+# Remove world-writable permissions from ALL files
+sudo find / -type f -perm -0002 -exec chmod o-w {} + 2>/dev/null
+
+# Remove world-writable permissions from ALL directories
+sudo find / -type d -perm -0002 -exec chmod o-w {} + 2>/dev/null
+
+# Change ownership to root (ensures only root can modify these files)
+sudo find / -type f -perm -0002 -exec chown root:root {} + 2>/dev/null
+sudo find / -type d -perm -0002 -exec chown root:root {} + 2>/dev/null
+
+# =========================
+# 6️⃣ Monitoring World-Writable Files
+# =========================
+
+# Install auditd to monitor world-writable file changes
+sudo apt install auditd -y
+
+# Enable auditing on world-writable directories
+sudo auditctl -w /tmp -p wa -k world-writable
+sudo auditctl -w /var/tmp -p wa -k world-writable
+
+# View audit logs of changes to world-writable files
+sudo ausearch -k world-writable
+
+# =========================
+# 7️⃣ Verifying Security Changes
+# =========================
+
+# Verify that no unauthorized world-writable files exist after changes
+sudo find / -type f -perm -0002 -ls 2>/dev/null
+
+# Verify that no unauthorized world-writable directories exist
+sudo find / -type d -perm -0002 -ls 2>/dev/null
+
