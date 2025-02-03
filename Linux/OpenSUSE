@@ -1,0 +1,159 @@
+#!/bin/bash
+
+# =========================
+# OpenSUSE Hardening Script
+# =========================
+# This script is designed for OpenSUSE and its derivatives.
+# It applies security configurations, audits logs, and stores them in a structured format.
+
+LOGFILE="/var/log/security_hardening.log"
+exec > >(tee -a "$LOGFILE") 2>&1  # Log all output to file
+
+# =========================
+# Updating System Packages
+# =========================
+# Keeping the system up-to-date ensures that all security patches are applied.
+echo "[+] Updating system packages..."
+sudo zypper refresh && sudo zypper update -y
+
+# =========================
+# Configuring Firewall (firewalld)
+# =========================
+# firewalld provides a dynamic way to manage firewall with support for network zones.
+echo "[+] Configuring firewall (firewalld)..."
+sudo zypper install -y firewalld
+sudo systemctl enable firewalld --now
+sudo firewall-cmd --set-default-zone=public
+sudo firewall-cmd --add-service=ssh --permanent
+sudo firewall-cmd --reload
+
+# =========================
+# Securing SSH
+# =========================
+# Restricting SSH access to enhance security.
+echo "[+] Securing SSH..."
+sudo sed -i 's/^#PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+sudo sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+echo "AllowUsers your_user" | sudo tee -a /etc/ssh/sshd_config  # Replace 'your_user' with your actual username
+sudo systemctl restart sshd
+
+# =========================
+# Locking Root Account
+# =========================
+# Disabling direct root login to prevent unauthorized access.
+echo "[+] Locking root account..."
+sudo passwd -l root
+
+# =========================
+# Setting Password Policies
+# =========================
+# Enforcing strong password policies to enhance security.
+echo "[+] Setting password policies..."
+sudo zypper install -y pam_pwquality
+sudo sed -i 's/^# minlen =.*/minlen = 12/' /etc/security/pwquality.conf
+sudo sed -i 's/^# dcredit =.*/dcredit = -1/' /etc/security/pwquality.conf
+sudo sed -i 's/^# ucredit =.*/ucredit = -1/' /etc/security/pwquality.conf
+sudo sed -i 's/^# ocredit =.*/ocredit = -1/' /etc/security/pwquality.conf
+sudo sed -i 's/^# lcredit =.*/lcredit = -1/' /etc/security/pwquality.conf
+
+# =========================
+# Installing Auditing Tools
+# =========================
+# Setting up auditd to monitor system activities.
+echo "[+] Installing auditing tools..."
+sudo zypper install -y audit
+sudo systemctl enable auditd --now
+cat <<EOF | sudo tee /etc/audit/rules.d/security.rules
+-w /etc/passwd -p wa -k passwd_changes
+-w /etc/shadow -p wa -k shadow_changes
+-w /var/log/auth.log -p wa -k auth_logs
+EOF
+sudo systemctl restart auditd
+
+# =========================
+# Configuring Fail2Ban
+# =========================
+# Protecting against brute-force attacks using Fail2Ban.
+echo "[+] Configuring Fail2Ban..."
+sudo zypper install -y fail2ban
+cat <<EOF | sudo tee /etc/fail2ban/jail.local
+[DEFAULT]
+bantime = 3600
+findtime = 600
+maxretry = 5
+[sshd]
+enabled = true
+EOF
+sudo systemctl enable fail2ban --now
+
+# =========================
+# Enabling and Configuring AppArmor
+# =========================
+# AppArmor provides mandatory access control for applications.
+echo "[+] Enabling AppArmor..."
+sudo zypper install -y apparmor-utils
+sudo systemctl enable apparmor --now
+sudo aa-enforce /etc/apparmor.d/*
+
+# =========================
+# Kernel and Network Hardening
+# =========================
+# Applying sysctl settings to harden the kernel and network stack.
+echo "[+] Applying kernel and network hardening settings..."
+cat <<EOT | sudo tee /etc/sysctl.d/99-security.conf
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_max_syn_backlog = 2048
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.all.send_redirects = 0
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+net.ipv4.conf.all.log_martians = 1
+net.ipv4.conf.default.log_martians = 1
+EOT
+sudo sysctl --system
+
+# =========================
+# Scanning for Rootkits and Malware
+# =========================
+# Using chkrootkit, rkhunter, and ClamAV to scan for rootkits and malware.
+echo "[+] Scanning for rootkits and malware..."
+sudo zypper install -y chkrootkit rkhunter clamav
+sudo freshclam  # Update ClamAV database
+sudo chkrootkit
+sudo rkhunter --update && sudo rkhunter --checkall
+sudo clamscan -r / --exclude-dir="^/sys" --exclude-dir="^/proc" --exclude-dir="^/dev"
+
+# =========================
+# Checking for Cron Jobs
+# =========================
+# Cron jobs allow scheduled execution of scripts and commands.
+# Learn more at: https://ostechnix.com/a-beginners-guide-to-cron-jobs/
+echo "[+] Checking for cron jobs..."
+echo "User Cron Jobs:" >> "$LOGFILE"
+crontab -l >> "$LOGFILE" 2>/dev/null
+echo "System-wide Cron Jobs:" >> "$LOGFILE"
+cat /etc/crontab >> "$LOGFILE"
+echo "Cron Job Directories:" >> "$LOGFILE"
+ls -la /etc/cron.* >> "$LOGFILE"
+
+# =========================
+# Listing Active Services
+# =========================
+# Documenting currently active services for review.
+echo "[+] Listing active services..."
+systemctl list-units --type=service --state=running >> "$LOGFILE"
+
+# =========================
+# Searching for .conf Files
+# =========================
+# Finding all configuration files for review.
+echo "[+] Searching for .conf files..."
+find / -type f -name "*.conf" 2>/dev/null >> "$LOGFILE"
+
+# =========================
+# Hardening Complete
+# =========================
+echo "[+] Hardening complete. Logs saved in $LOGFILE"
+
