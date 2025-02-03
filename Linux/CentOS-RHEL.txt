@@ -1,0 +1,136 @@
+#!/bin/bash
+
+# =========================
+# CentOS/RHEL Hardening Script
+# =========================
+# This script is designed for CentOS and RHEL-based systems.
+# It applies security configurations, audits logs, and stores them in a structured format.
+
+LOGFILE="/var/log/security_hardening.log"
+exec > >(tee -a "$LOGFILE") 2>&1  # Log all output to file
+
+# =========================
+# Updating System Packages
+# =========================
+echo "[+] Updating system packages..."
+sudo yum update -y
+
+# =========================
+# Configuring Firewall (firewalld)
+# =========================
+echo "[+] Configuring firewall (firewalld)..."
+sudo yum install firewalld -y
+sudo systemctl enable firewalld
+sudo systemctl start firewalld
+sudo firewall-cmd --set-default-zone=public
+sudo firewall-cmd --add-service=ssh --permanent
+sudo firewall-cmd --reload
+
+# =========================
+# Securing SSH
+# =========================
+echo "[+] Securing SSH..."
+sudo sed -i 's/^#PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+sudo sed -i 's/^#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+echo "AllowUsers your_user" | sudo tee -a /etc/ssh/sshd_config  # Replace 'your_user' with your actual username
+sudo systemctl restart sshd
+
+# =========================
+# Locking Root Account
+# =========================
+echo "[+] Locking root account..."
+sudo passwd -l root
+
+# =========================
+# Setting Password Policies
+# =========================
+echo "[+] Setting password policies..."
+sudo yum install -y libpwquality
+sudo sed -i 's/^# minlen =.*/minlen = 12/' /etc/security/pwquality.conf
+sudo sed -i 's/^# dcredit =.*/dcredit = -1/' /etc/security/pwquality.conf
+sudo sed -i 's/^# ucredit =.*/ucredit = -1/' /etc/security/pwquality.conf
+sudo sed -i 's/^# ocredit =.*/ocredit = -1/' /etc/security/pwquality.conf
+sudo sed -i 's/^# lcredit =.*/lcredit = -1/' /etc/security/pwquality.conf
+
+# =========================
+# Installing Auditing Tools
+# =========================
+echo "[+] Installing auditing tools..."
+sudo yum install -y audit
+sudo systemctl enable auditd
+sudo systemctl start auditd
+cat <<EOF | sudo tee /etc/audit/rules.d/security.rules
+-w /etc/passwd -p wa -k passwd_changes
+-w /etc/shadow -p wa -k shadow_changes
+-w /var/log/secure -p wa -k auth_logs
+EOF
+sudo augenrules --load
+
+# =========================
+# Configuring Fail2Ban
+# =========================
+echo "[+] Configuring Fail2Ban..."
+sudo yum install -y epel-release
+sudo yum install -y fail2ban
+cat <<EOF | sudo tee /etc/fail2ban/jail.local
+[DEFAULT]
+bantime = 3600
+findtime = 600
+maxretry = 5
+[sshd]
+enabled = true
+EOF
+sudo systemctl enable fail2ban
+sudo systemctl start fail2ban
+
+# =========================
+# Kernel and Network Hardening
+# =========================
+echo "[+] Applying kernel and network hardening settings..."
+cat <<EOT | sudo tee -a /etc/sysctl.conf
+net.ipv4.conf.all.rp_filter = 1
+net.ipv4.icmp_echo_ignore_broadcasts = 1
+net.ipv4.tcp_syncookies = 1
+net.ipv4.tcp_max_syn_backlog = 2048
+net.ipv4.conf.all.accept_redirects = 0
+EOT
+sudo sysctl -p
+
+# =========================
+# Scanning for Rootkits
+# =========================
+echo "[+] Scanning for rootkits..."
+sudo yum install -y epel-release
+sudo yum install -y chkrootkit rkhunter
+sudo chkrootkit
+sudo rkhunter --update
+sudo rkhunter --checkall
+
+# =========================
+# Checking for Cron Jobs
+# =========================
+echo "[+] Checking for cron jobs..."
+echo "User Cron Jobs:" > /var/log/cron_jobs.log
+crontab -l >> /var/log/cron_jobs.log
+echo "System-wide Cron Jobs:" >> /var/log/cron_jobs.log
+cat /etc/crontab >> /var/log/cron_jobs.log
+echo "Cron Job Directories:" >> /var/log/cron_jobs.log
+ls -la /etc/cron.* >> /var/log/cron_jobs.log
+
+# =========================
+# Listing Active Services
+# =========================
+echo "[+] Listing active services..."
+systemctl list-units --type=service --state=running >> /var/log/active_services.log
+
+# =========================
+# Searching for .conf Files
+# =========================
+echo "[+] Searching for .conf files..."
+find / -type f -name "*.conf" 2>/dev/null >> /var/log/conf_files.log
+
+# =========================
+# Hardening Complete
+# =========================
+echo "[+] Hardening complete. Logs saved in /var/log/security_hardening.log"
+
